@@ -15,19 +15,32 @@ COOK_PATH = os.path.join(tempfile.gettempdir(), "rez-cook")
 
 REQUESTED_VARIANTS = PLATFORM_VARIANTS  # + args
 
+class RecipeNotFound(Exception):
+    pass
+
+class DependencyConflict(Exception):
+    pass
+
+
 class PackageRequest:
     def __init__(self, req: str):
-        '''
+        """
         Parse a package request of the form 'pkg-version'
         TODO: variants
-        '''
-        toks = req.split('-')
+        """
+        toks = req.split("-")
         if len(toks) == 2:
             self.name = toks[0]
             self.version = VersionRange(toks[1])
         else:
             self.name = req
-            self.version = VersionRange('')
+            self.version = VersionRange("")
+
+    def __str__(self) -> str:
+        if str(self.version):
+            return f"{self.name}-{self.version}"
+        else:
+            return self.name
 
 
 def load_module(name, path):
@@ -47,11 +60,14 @@ def parse_variants(vstr):
     return [match.group(1) for match in re.finditer(rgx, vstr)]
 
 
-def find_recipe(requested_pkg, requested_variants, installed_selections):
+def find_recipe(
+    pkg_req: PackageRequest, requested_variants: "list[str]", installed_selections
+):
+    # First search the installed packages to see if one satisfies the request already
     result = sp.run(
         [
             "rez-search",
-            requested_pkg,
+            str(pkg_req),
             "--format",
             "{name}:{version}:{variants}:{requires}:{build_requires}",
         ],
@@ -67,18 +83,16 @@ def find_recipe(requested_pkg, requested_variants, installed_selections):
             None,
         )
         variants = [parse_variants(v) for v in filter(None, vstr.split("["))]
-        # print(
-        #     f"Selected {name}-{version} {variants} for {requested_pkg} {requested_variants}"
-        # )
         if ((name, version, variants)) not in installed_selections:
             installed_selections.append((name, version, variants))
 
         return []
 
+    # If we don't have one installed, search the recipes
     result = sp.run(
         [
             "rez-search",
-            requested_pkg,
+            str(pkg_req),
             "--paths",
             RECIPES_PATH,
             "--format",
@@ -89,17 +103,16 @@ def find_recipe(requested_pkg, requested_variants, installed_selections):
     )
 
     if b"No matching" in result.stderr:
-        print(f"{pkg} not found in recipes.")
-        sys.exit(1)
+        raise RecipeNotFound(f"No recipe satisfying {pkg_req} found in {RECIPES_PATH}")
 
-    to_cook = []
+    # Now if we've found some recipes to build, go through them, latest first and 
+    # make sure we've got/can build their dependencies
+    to_cook = {}
     for line in reversed(result.stdout.decode("utf-8").splitlines()):
-        name, version, vstr, requires_str, build_requires_str = line.strip().split(":")
-        variants = [parse_variants(v) for v in filter(None, vstr.split("["))]
+        name, version_str, variant_str, requires_str, build_requires_str = line.strip().split(":")
+        version = VersionRange(version_str)
+        variants = [parse_variants(v) for v in filter(None, variant_str.split("["))]
         # print(f"Found recipe for {name}-{version} {variants}")
-
-        requires = filter(None, requires_str.split(" "))
-        build_requires = filter(None, build_requires_str.split(" "))
 
         requires = filter(None, requires_str.split(" "))
         build_requires = filter(None, build_requires_str.split(" "))
@@ -107,27 +120,50 @@ def find_recipe(requested_pkg, requested_variants, installed_selections):
         # Check whether any of the set of variants provided matches our variants list
         for variant in variants:
             if all(v in variant for v in requested_variants):
-                # recurisvely find all dependencies
                 # print(
-                #     f"Selected {name}-{version} {variant} for {requested_pkg} {requested_variants}"
+                #     f"Selected {name}-{version} {variant} for {pkg_req} {requested_variants}"
                 # )
-                for req in itertools.chain(requires, build_requires):
-                    req_deps_list = find_recipe(
-                        req, requested_variants, installed_selections
-                    )
+                # recurisvely find all dependencies
+                try:
+                    for req_str in itertools.chain(requires, build_requires):
+                        req = PackageRequest(req_str)
+                        req_deps_list = find_recipe(
+                            req, requested_variants, installed_selections
+                        )
 
-                    # Add each sub-dependency to the list if we don't have it already
-                    # TODO: use versioning correctly here - need to find a single
-                    # version for each package family that satisfies all requires
-                    for dep_info in req_deps_list:
-                        if dep_info is not None and dep_info not in to_cook:
-                            to_cook.append(dep_info)
+                        # Add each sub-dependency to the list if we don't have it already
+                        # TODO: use versioning correctly here - need to find a single
+                        # version for each package family that satisfies all requires
+                        for dep_name, (dep_version, dep_variants) in req_deps_list.items():
+                            # print(f"dep_name={dep_name} dep_version={dep_version} dep_variants={dep_variants}")
 
-                # add this variant
+                            if dep_name in to_cook.keys():
+                                # have already selected a range of this dependency, try
+                                # and combine them
+                                existing_range = to_cook[dep_name][0]
+                                if dep_version.intersects(existing_range):
+                                    # We can combine by narrowing the dependencies
+                                    # todo - extend variants here?
+                                    new_version = dep_version.intersection(existing_range)
+                                    # print(f"Narrowing {dep_name} to {new_version}")
+                                    to_cook[dep_name] = (new_version, dep_variants)
+                                else:
+                                    # no intersection - can't resolve
+                                    raise DependencyConflict(f"{dep_name}-{dep_version} <--!--> {dep_name}-{existing_range}")
+                            else:
+                                to_cook[dep_name] = (dep_version, dep_variants)
+                except DependencyConflict as e:
+                    # FIXME: Why doesn't this chain properly?
+                    raise DependencyConflict(f"Resolving {pkg_req}: {e}") from e
+                except RecipeNotFound as e:
+                    raise e
+
+                # If we get here, all the dependencies are available, so add this variant
                 # TODO: again, need to match versions properly
-                this_req_info = (name, version, variant)
-                if this_req_info not in to_cook:
-                    to_cook.append(this_req_info)
+                this_req_info = (version, variant)
+                if name not in to_cook:
+                    to_cook[name] = this_req_info
+                break
 
     return to_cook
 
@@ -172,7 +208,6 @@ def build_recipe(recipe, no_cleanup, verbose_build):
     finally:
         os.chdir(old_dir)
 
-
     # Now do the actual build
     # Use cook() if it's available, otherwise use the build_command
     if "cook" in dir(mod):
@@ -204,7 +239,7 @@ def build_recipe(recipe, no_cleanup, verbose_build):
                 )
         except sp.CalledProcessError as e:
             if not verbose_build:
-                print(e.stderr.decode('utf-8'))
+                print(e.stderr.decode("utf-8"))
             print(f"\nBuild failed for {name}-{version} {variant}: {e}")
             raise e
         finally:
@@ -221,8 +256,7 @@ if __name__ == "__main__":
         "package",
         metavar="PKG",
         type=str,
-        nargs="+",
-        help="Package versions to fetch and build, e.g 'openexr', 'usd-20.08'",
+        help="Package and version to fetch and build, e.g 'openexr', 'usd-20.08'",
     )
     parser.add_argument(
         "-d",
@@ -244,31 +278,28 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    recipes_to_cook = []
+    pkg_req = PackageRequest(args.package)
     installed_selections = []
-    for pkg in args.package:
-        this_recipes = find_recipe(pkg, REQUESTED_VARIANTS, installed_selections)
-        for recipe in this_recipes:
-            if recipe not in recipes_to_cook:
-                recipes_to_cook.append(recipe)
+    recipes_to_cook = find_recipe(pkg_req, REQUESTED_VARIANTS, installed_selections)
 
     if not recipes_to_cook:
-        print(f"Nothing to do for {pkg} {REQUESTED_VARIANTS}")
+        print(f"Nothing to do for {pkg_req} {REQUESTED_VARIANTS}")
 
     print("Package selection:")
     print("- Already installed")
     for name, version, variant in installed_selections:
-        print(f"    {name:>16} {version:>8} {variant}")
+        print(f"    {name:>16} {str(version):>8} {variant}")
 
     print()
 
-    print("- Cooking")
-    for name, version, variant in recipes_to_cook:
-        print(f"    {name:>16} {version:>8} {variant}")
-    
-    print()
+    if recipes_to_cook:
+        print("- Cooking")
+        for name, (version, variant) in recipes_to_cook.items():
+            print(f"    {name:>16} {str(version):>8} {variant}")
+
+        print()
 
     if not args.dry_run:
         # build the flattened tree of recipes in depth-first order
-        for recipe in recipes_to_cook:
-            build_recipe(recipe, args.no_cleanup, args.verbose_build)
+        for name, (version, variant) in recipes_to_cook.items():
+            build_recipe((name, version, variant), args.no_cleanup, args.verbose_build)
