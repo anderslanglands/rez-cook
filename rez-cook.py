@@ -74,7 +74,10 @@ def find_recipe(
         stdout=sp.PIPE,
         stderr=sp.PIPE,
     )
+
+    # FIXME: This fails when a broken package is found (i.e. dir there but no pacakge file)
     if not b"No matching" in result.stderr:
+        # print(f"find('{pkg_req}').stdout:\n{result.stdout}")
         name, version, vstr, _, _ = next(
             (
                 x.strip().split(":")
@@ -86,7 +89,7 @@ def find_recipe(
         if ((name, version, variants)) not in installed_selections:
             installed_selections.append((name, version, variants))
 
-        return []
+        return {}
 
     # If we don't have one installed, search the recipes
     result = sp.run(
@@ -167,10 +170,31 @@ def find_recipe(
 
     return to_cook
 
+def rmtree_for_real(path):
+    import shutil
+
+    # Isn't Windows wonderful? You cannot delete a hidden file, which means
+    # you can't delete any of the .git stuff lots of releases check out when
+    # building without first removing those attributes
+    if os.name == "nt":
+        def yes_i_really_mean_it(func, dpath, exc_info):
+            # If it's a FileNotFound then just ignore it
+            # Why use one error code when you can have two at twice the price?
+            if exc_info[1].winerror in [2, 3]:
+                return
+
+            os.system(f"attrib -r -h -s {dpath}")
+            func(dpath)
+
+        shutil.rmtree(path, onerror=yes_i_really_mean_it)
+    else:
+        shutil.rmtree(path)
+
 
 def build_recipe(recipe, no_cleanup, verbose_build):
     # First, copy the resolved package.py to the build area
-    name, version, variant = recipe
+    name, version_range, variant = recipe
+    version = str(version_range)
     pkg_subpath = os.path.join(name, version, *variant)
     staging_path = os.path.join(COOK_PATH, name, version)
     staging_package_py_path = os.path.join(staging_path, "package.py")
@@ -178,7 +202,7 @@ def build_recipe(recipe, no_cleanup, verbose_build):
     recipe_package_py_path = os.path.join(recipe_package_root, "package.py")
 
     # blow away anything in the staging path already
-    shutil.rmtree(staging_path, ignore_errors=True)
+    rmtree_for_real(staging_path)
     os.makedirs(staging_path)
     shutil.copyfile(recipe_package_py_path, staging_package_py_path)
 
@@ -186,12 +210,14 @@ def build_recipe(recipe, no_cleanup, verbose_build):
     old_dir = os.getcwd()
     mod = load_module(f"{name}-{version}-{variant}", staging_package_py_path)
     install_path = os.path.join(LOCAL_PACKAGE_PATH, pkg_subpath)
+    install_root = os.path.join(LOCAL_PACKAGE_PATH, name, version)
     build_path = os.path.join(staging_path, "build", *variant)
     os.makedirs(build_path)
     setattr(mod, "name", name)
     setattr(mod, "version", version)
     setattr(mod, "variant", variant)
     setattr(mod, "install_path", install_path)
+    setattr(mod, "install_root", install_root)
     setattr(mod, "build_path", build_path)
     setattr(mod, "root", staging_path)
 
@@ -203,7 +229,7 @@ def build_recipe(recipe, no_cleanup, verbose_build):
         print(f"Pre-cooking failed for {name}-{version} {variant}: {e}")
         traceback.print_exc()
         if not no_cleanup:
-            shutil.rmtree(staging_path)
+            rmtree_for_real(staging_path)
         raise e
     finally:
         os.chdir(old_dir)
@@ -218,20 +244,24 @@ def build_recipe(recipe, no_cleanup, verbose_build):
             mod.cook()
         except Exception as e:
             print(f"\nCook failed for {name}-{version} {variant}: {e}")
-            shutil.rmtree(install_path)
+            rmtree_for_real(install_path)
             raise e
         finally:
             os.chdir(old_dir)
             if not no_cleanup:
-                shutil.rmtree(staging_path)
+                rmtree_for_real(staging_path)
     else:
         try:
+            cmd = ["rez-build", "--install"]
+            if 'build_args' in dir(mod) and isinstance(mod.build_args, list):
+                cmd += ['--build-args'] + mod.build_args
+
             print(f"Building {name}-{version} {variant}")
             if verbose_build:
-                sp.run(["rez-build", "--install"], cwd=staging_path, check=True)
+                sp.run(cmd, cwd=staging_path, check=True)
             else:
                 sp.run(
-                    ["rez-build", "--install"],
+                    cmd,
                     cwd=staging_path,
                     check=True,
                     stderr=sp.PIPE,
@@ -245,7 +275,7 @@ def build_recipe(recipe, no_cleanup, verbose_build):
         finally:
             os.chdir(old_dir)
             if not no_cleanup:
-                shutil.rmtree(staging_path)
+                rmtree_for_real(staging_path)
 
 
 if __name__ == "__main__":
