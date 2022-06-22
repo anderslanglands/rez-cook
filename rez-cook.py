@@ -4,7 +4,7 @@ from rez.vendor.version.requirement import VersionedObject
 from rez.vendor.version.version import VersionRange
 
 HOME = str(Path.home())
-RECIPES_PATH = f"{HOME}/code/rez-recipes"
+RECIPES_PATH = os.getenv("REZ_RECIPES_PATH") or f"{HOME}/code/rez-recipes"
 LOCAL_PACKAGE_PATH = f"{HOME}/packages"
 
 PLATFORM = platform.system().lower()
@@ -188,10 +188,61 @@ def rmtree_for_real(path):
 
         shutil.rmtree(path, onerror=yes_i_really_mean_it)
     else:
-        shutil.rmtree(path)
+        shutil.rmtree(path, ignore_errors=True)
 
 
-def build_recipe(recipe, no_cleanup, verbose_build):
+def download_and_unpack(url, local_dir=None):
+    import urllib.request, shutil, os
+
+    if local_dir is None:
+        local_dir = os.getcwd()
+
+    print(f"Downloading {url}...")
+    fn = os.path.join(local_dir, os.path.basename(url))
+    with urllib.request.urlopen(url) as resp, open(fn, "wb") as f:
+        shutil.copyfileobj(resp, f)
+
+    files_before = os.listdir(".")
+    shutil.unpack_archive(fn)
+    files_after = os.listdir(".")
+    new_files = list(set(files_after) - set(files_before))
+    assert(len(new_files) != 0)
+
+    if len(new_files) == 1:
+        archive_dir = new_files[0]
+
+        for file in os.listdir(archive_dir):
+            # Windows gets terribly confused with directories with the same name,
+            # bless its cottons
+            if file == "build" and os.path.isdir(file):
+                for ff in os.listdir(os.path.join(archive_dir, "build")):
+                    shutil.move(os.path.join(archive_dir, "build", ff), os.path.join("build", ff))
+            else:
+                shutil.move(os.path.join(archive_dir, file), file)
+
+def fetch_repository(repo, branch=None):
+    import subprocess as sp, os, shutil
+
+    args = [
+        "git",
+        "clone",
+        "--recursive",
+        "--depth",
+        "1",
+        repo,
+        "_clone",
+    ]
+
+    if branch is not None:
+        args += ["-b", branch]
+
+    sp.run(args)
+
+    for f in os.listdir("_clone"):
+        shutil.move(os.path.join("_clone", f), f)
+
+
+def cook_recipe(recipe, no_cleanup, verbose_build):
     # First, copy the resolved package.py to the build area
     name, version_range, variant = recipe
     version = str(version_range)
@@ -220,6 +271,8 @@ def build_recipe(recipe, no_cleanup, verbose_build):
     setattr(mod, "install_root", install_root)
     setattr(mod, "build_path", build_path)
     setattr(mod, "root", staging_path)
+    setattr(mod, "download_and_unpack", download_and_unpack)
+    setattr(mod, "fetch_repository", fetch_repository)
 
     try:
         os.chdir(staging_path)
@@ -306,6 +359,12 @@ if __name__ == "__main__":
         action="store_true",
         help="Print all build output",
     )
+    parser.add_argument(
+        "-w",
+        "--with",
+        type=str,
+        help="Additional variant constraints",
+    )
     args = parser.parse_args()
 
     pkg_req = PackageRequest(args.package)
@@ -332,4 +391,4 @@ if __name__ == "__main__":
     if not args.dry_run:
         # build the flattened tree of recipes in depth-first order
         for name, (version, variant) in recipes_to_cook.items():
-            build_recipe((name, version, variant), args.no_cleanup, args.verbose_build)
+            cook_recipe((name, version, variant), args.no_cleanup, args.verbose_build)
