@@ -97,7 +97,7 @@ class PackageList:
             yield pkg
 
     def __str__(self):
-        s = "PackageList["
+        s = "["
         first = True
         for p in self._pkgs:
             if not first:
@@ -117,3 +117,6 @@ class PackageList:
 
     def __getitem__(self, i):
         return self._pkgs[i]
+
+    def __add__(self, rhs):
+        return PackageList(self._pkgs + rhs._pkgs)
