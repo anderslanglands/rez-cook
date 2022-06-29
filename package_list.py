@@ -50,17 +50,17 @@ class PackageList:
         are not present in self
         """
         d = dict(zip([p.name for p in self._pkgs], self._pkgs))
-        result = []
+
         for p in rhs:
             if p.name in d.keys():
                 m = p.merged(d[p.name])
                 if m is None:
                     raise VersionConflict(f"Cannot merge {p} with {d[p.name]}")
-                result.append(PackageRequest(f"{m.name}-{m.range}"))
+                d[p.name] = PackageRequest(f"{m.name}-{m.range}")
             else:
-                result.append(PackageRequest(f"{p.name}-{p.range}"))
+                d[p.name] = p
 
-        return PackageList(result)
+        return PackageList([p for _, p in d.items()])
               
 
     def merged(self, rhs: "PackageList") -> "PackageList":
@@ -89,6 +89,26 @@ class PackageList:
                 result.append(p)
 
         return PackageList(result)
+
+
+    def add_constraint(self, rhs: PackageRequest):
+        result = []
+        found = False
+        for p in self._pkgs:
+            if rhs.name == p.name:
+                m = p.merged(rhs)
+                if m is None:
+                    raise VersionConflict(f"Cannot merge {p} with {rhs}")
+
+                result.append(PackageRequest(f"{m.name}-{m.range}"))
+                found = True
+            else:
+                result.append(p)
+        
+        if not found:
+            result.append(rhs)
+
+        self._pkgs = PackageList(result)
 
               
 
