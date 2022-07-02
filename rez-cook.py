@@ -122,7 +122,7 @@ def build_dependency_tree_depth(
     for pkg in merged_requires:
         # LOG.debug(f"Finding recipe for {pkg}")
         if pkg.name not in RECIPES.keys():
-            raise RuntimeError("Could not find a recipe for {pkg}")
+            raise RuntimeError(f"Could not find a recipe for {pkg}")
 
         # Iterate over all variants and select the best one
         # Here we just assume best = latest non-conflicting
@@ -166,7 +166,7 @@ def find_recipe(
 
     found = []
 
-    if pkg_req.name not in RECIPES.keys():
+    if not RECIPES or pkg_req.name not in RECIPES.keys():
         return []
 
     recipes = RECIPES[pkg_req.name]
@@ -467,32 +467,30 @@ def load_recipes(package_search_paths: str, recipe_search_paths: str) -> Dict:
         stderr=sp.PIPE,
     )
 
-    if b"No matching" in result.stderr:
-        return
-
-    for name, version, vstr, requires_str, build_requires_str in [
-        x.strip().split(":")
-        for x in reversed(result.stdout.decode("utf-8").splitlines())
-    ]:
-        # this_pkg = PackageRequest(f"{name}-{version}")
-        variants = [parse_variants(v) for v in filter(None, vstr.split("["))]
-        requires = PackageList([x for x in filter(None, requires_str.split(" "))])
-        build_requires = PackageList(
-            [x for x in filter(None, build_requires_str.split(" "))]
-        )
-
-        if name not in RECIPES.keys():
-            RECIPES[name] = []
-
-        if len(variants) != 0:
-            for variant in variants:
-                RECIPES[name].append(
-                    Recipe(name, version, variant, requires, build_requires, True)
-                )
-        else:
-            RECIPES[name].append(
-                Recipe(name, version, PackageList([]), requires, build_requires, True)
+    if not b"No matching" in result.stderr:
+        for name, version, vstr, requires_str, build_requires_str in [
+            x.strip().split(":")
+            for x in reversed(result.stdout.decode("utf-8").splitlines())
+        ]:
+            # this_pkg = PackageRequest(f"{name}-{version}")
+            variants = [parse_variants(v) for v in filter(None, vstr.split("["))]
+            requires = PackageList([x for x in filter(None, requires_str.split(" "))])
+            build_requires = PackageList(
+                [x for x in filter(None, build_requires_str.split(" "))]
             )
+
+            if name not in RECIPES.keys():
+                RECIPES[name] = []
+
+            if len(variants) != 0:
+                for variant in variants:
+                    RECIPES[name].append(
+                        Recipe(name, version, variant, requires, build_requires, True)
+                    )
+            else:
+                RECIPES[name].append(
+                    Recipe(name, version, PackageList([]), requires, build_requires, True)
+                )
 
     # Now do recipes
     result = sp.run(
@@ -510,7 +508,7 @@ def load_recipes(package_search_paths: str, recipe_search_paths: str) -> Dict:
     )
 
     if b"No matching" in result.stderr:
-        return
+        return RECIPES
 
     for name, version, vstr, requires_str, build_requires_str in [
         x.strip().split(":")
@@ -619,6 +617,7 @@ if __name__ == "__main__":
     package_search_path = args.search_path or SEARCH_PACKAGE_PATH
 
     RECIPES = load_recipes(package_search_path, RECIPES_PATH)
+    print(f"RECIPES: {RECIPES.keys()}")
 
     available_recipes = find_recipe(
         pkg_req,
