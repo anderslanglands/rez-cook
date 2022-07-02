@@ -66,7 +66,7 @@ class PackageList:
     def merged(self, rhs: "PackageList") -> "PackageList":
         """
         Merge self with PackageList rhs, ignoring any packages from rhs that 
-        are not present in self
+        are not present in both lists
         """
         d = dict(zip([p.name for p in self._pkgs], self._pkgs))
         result = []
@@ -76,6 +76,26 @@ class PackageList:
                 if m is None:
                     raise VersionConflict(f"Cannot merge {p} with {d[p.name]}")
                 result.append(PackageRequest(f"{m.name}-{m.range}"))
+
+        return PackageList(result)
+
+
+    def merged_into(self, rhs: "PackageList") -> "PackageList":
+        """
+        Merge self with PackageList rhs, ignoring any packages from rhs that 
+        are not present in self, and preserving any packages in self that are not 
+        present in rhs
+        """
+        d = dict(zip([p.name for p in rhs._pkgs], rhs._pkgs))
+        result = []
+        for p in self._pkgs:
+            if p.name in d.keys():
+                m = p.merged(d[p.name])
+                if m is None:
+                    raise VersionConflict(f"Cannot merge {p} with {d[p.name]}")
+                result.append(PackageRequest(f"{m.name}-{m.range}"))
+            else:
+                result.append(p)
 
         return PackageList(result)
 

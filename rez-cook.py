@@ -74,7 +74,10 @@ def parse_variants(vstr: str) -> PackageList:
 
 
 def has_dependency_conflict(
-    recipe: Recipe, constraints: PackageList, RECIPES: Dict, failed_dependency_chain: List[str]
+    recipe: Recipe,
+    constraints: PackageList,
+    RECIPES: Dict,
+    failed_dependency_chain: List[str],
 ) -> bool:
     """
     Recursively check if the Recipe recipe, or any of its dependencies, has conflicts
@@ -95,7 +98,9 @@ def has_dependency_conflict(
                     if rec.pkg.conflicts_with(pkg):
                         continue
 
-                    if not has_dependency_conflict(rec, constraints, RECIPES, failed_dependency_chain):
+                    if not has_dependency_conflict(
+                        rec, constraints, RECIPES, failed_dependency_chain
+                    ):
                         all_conflict = False
 
         return all_conflict
@@ -151,13 +156,18 @@ def build_dependency_tree_depth(
 
             break
         else:
-            raise RuntimeError(f"Could not find a suitable recipe for {pkg}: {failed_dependency_chains}")
+            raise RuntimeError(
+                f"Could not find a suitable recipe for {pkg}: {failed_dependency_chains}"
+            )
 
     return new_deps
 
 
 def find_recipe(
-    pkg_req: PackageRequest, requested_variant: PackageList, RECIPES: Dict, installed: bool
+    pkg_req: PackageRequest,
+    requested_variant: PackageList,
+    RECIPES: Dict,
+    installed: bool,
 ) -> List[Recipe]:
     """
     Return a list of recipes (both installed and uncooked) that satisfy the given
@@ -213,7 +223,9 @@ def rmtree_for_real(path):
         shutil.rmtree(path, ignore_errors=True)
 
 
-def download_and_unpack(url: str, local_dir: str = None, move_up: bool =True, format: str = None):
+def download_and_unpack(
+    url: str, local_dir: str = None, move_up: bool = True, format: str = None
+):
     """
     Download and unpack an archive at `url`. If `move_up` is True, then strip the
     first component from the extracted archive (essentially what "tar xf --strip 1" does)
@@ -245,12 +257,12 @@ def download_and_unpack(url: str, local_dir: str = None, move_up: bool =True, fo
                 shutil.move(os.path.join(archive_dir, file), file)
 
 
-def fetch_repository(repo: str, branch: str=None):
+def fetch_repository(repo: str, branch: str = None):
     """
     Fetch the given branch from the given git repository, non-recusively with
-    a depth of 1 
+    a depth of 1
     """
-    
+
     import subprocess as sp, os, shutil
 
     args = [
@@ -276,7 +288,7 @@ def build_variant_path(variant: PackageList, path: str, comp: int):
     """
     Find the package.py corresponding to the given `variant` under `path`
     """
-    
+
     for f in os.listdir(path):
         if comp == len(variant) and f == "package.py":
             return os.path.join(path, "package.py")
@@ -293,7 +305,7 @@ def build_variant_path(variant: PackageList, path: str, comp: int):
 def find_recipe_resource(name: str, version: str, variant: PackageList):
     """
     The recipe that we're trying to build might have an any variant (e.g. python packages)
-    so we need to scan the directories under the version path and try and match them to 
+    so we need to scan the directories under the version path and try and match them to
     the requested variant
     """
 
@@ -301,14 +313,15 @@ def find_recipe_resource(name: str, version: str, variant: PackageList):
     return build_variant_path(variant, version_base, 0)
 
 
-def cook_recipe(recipe: Recipe, constraints: PackageList, no_cleanup: bool, verbose_build: bool):
+def cook_recipe(
+    recipe: Recipe, constraints: PackageList, no_cleanup: bool, verbose_build: bool
+):
     """
     Cook `recipe`.
 
     This creates a staging area under a temp directory, copies the variant
     package.py there, then runs "pre_cook()", then builds and installs
     """
-
 
     LOG.debug(f"Cooking {recipe}")
     # First, copy the resolved package.py to the build area
@@ -326,16 +339,17 @@ def cook_recipe(recipe: Recipe, constraints: PackageList, no_cleanup: bool, verb
     os.makedirs(staging_path)
     shutil.copyfile(recipe_package_py_path, staging_package_py_path)
 
-    print(f"Merging {recipe.variant} with {constraints}")
-    cook_variant_expanded = recipe.variant.merged(constraints)
+    # print(f"Merging {recipe.variant} with {constraints}")
+    cook_variant_expanded = recipe.variant.merged_into(constraints)
+    # print(f"expanded is {cook_variant_expanded}")
 
     # Try and modify the requests to maj.min in the variant
     cook_variant = []
     for req in cook_variant_expanded:
         if req.range.is_any():
-            raise RuntimeError(
-                'Cannot cook with unconstrained variant {req}: you must specify a version on the command line to constrain this, e.g. "-c {req.name}-1.1"'
-            )
+            versions = [str(rec.pkg.range) for rec in RECIPES[req.name]]
+            es = f"Cannot cook with unconstrained variant '{req}': you must specify a version on the command line to constrain this, e.g. '-c {req.name}-{versions[0]}'"
+            raise RuntimeError(es)
 
         # check if it's got dots in the range
         range_toks = str(req.range).split(".")
@@ -349,7 +363,7 @@ def cook_recipe(recipe: Recipe, constraints: PackageList, no_cleanup: bool, verb
             cook_variant.append(new_req)
     cook_variant = PackageList(cook_variant)
 
-    print(f"To get {cook_variant}")
+    # print(f"Building with {cook_variant}")
 
     install_path = os.path.join(LOCAL_PACKAGE_PATH, pkg_subpath)
     install_root = os.path.join(LOCAL_PACKAGE_PATH, name, version)
@@ -489,7 +503,9 @@ def load_recipes(package_search_paths: str, recipe_search_paths: str) -> Dict:
                     )
             else:
                 RECIPES[name].append(
-                    Recipe(name, version, PackageList([]), requires, build_requires, True)
+                    Recipe(
+                        name, version, PackageList([]), requires, build_requires, True
+                    )
                 )
 
     # Now do recipes
@@ -617,7 +633,6 @@ if __name__ == "__main__":
     package_search_path = args.search_path or SEARCH_PACKAGE_PATH
 
     RECIPES = load_recipes(package_search_path, RECIPES_PATH)
-    print(f"RECIPES: {RECIPES.keys()}")
 
     available_recipes = find_recipe(
         pkg_req,
@@ -655,17 +670,18 @@ if __name__ == "__main__":
         print("Using installed packages:")
         for rec in recipes_to_cook:
             if rec.installed:
-                print(f"    {rec.pkg}/{rec.variant}")
+                print(f"    {rec.pkg}/{'/'.join([str(p) for p in rec.variant])}")
 
     if any([not r.installed for r in recipes_to_cook]):
         print()
         print("Cooking:")
         for rec in recipes_to_cook:
             if not rec.installed:
-                print(f"    {rec.pkg}/{rec.variant}")
+                print(f"    {rec.pkg}/{'/'.join([str(p) for p in rec.variant])}")
     else:
         print("\n\nNothing to cook.")
         sys.exit(0)
+    print("")
 
     if args.dry_run:
         print("Dry run. Exiting.")
