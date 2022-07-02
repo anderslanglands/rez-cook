@@ -322,6 +322,8 @@ def download(url, out=None, bar=bar_adaptive):
         filename = filename_fix_existing(filename)
     shutil.move(tmpfile, filename)
 
+    print()
+
     #print headers
     return filename
 

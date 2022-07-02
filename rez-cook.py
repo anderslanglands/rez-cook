@@ -1,7 +1,4 @@
-from asyncio import constants
-from distutils.version import Version
-from heapq import merge
-import sys, subprocess as sp, platform, re, os, tempfile, shutil, itertools, argparse, traceback
+import sys, subprocess as sp, platform, re, os, tempfile, shutil, argparse, traceback
 from pathlib import Path
 from wget import download
 
@@ -10,8 +7,9 @@ from rez.utils.formatting import PackageRequest
 from package_list import PackageList
 from recipe import Recipe
 import logging
-from typing import List, Dict, Tuple
+from typing import List, Dict
 from copy import deepcopy
+import traceback
 
 LOG = logging.getLogger(__name__)
 
@@ -76,7 +74,7 @@ def parse_variants(vstr: str) -> PackageList:
 
 
 def has_dependency_conflict(
-    recipe: Recipe, constraints: PackageList, RECIPES: Dict
+    recipe: Recipe, constraints: PackageList, RECIPES: Dict, failed_dependency_chain: List[str]
 ) -> bool:
     """
     Recursively check if the Recipe recipe, or any of its dependencies, has conflicts
@@ -84,6 +82,7 @@ def has_dependency_conflict(
     """
 
     if recipe.conflicts_with_package_list(constraints):
+        failed_dependency_chain.append(str(recipe.pkg))
         return True
 
     merged = recipe.build_requires.additive_merged(recipe.requires)
@@ -96,7 +95,7 @@ def has_dependency_conflict(
                     if rec.pkg.conflicts_with(pkg):
                         continue
 
-                    if not has_dependency_conflict(rec, constraints, RECIPES):
+                    if not has_dependency_conflict(rec, constraints, RECIPES, failed_dependency_chain):
                         all_conflict = False
 
         return all_conflict
@@ -127,12 +126,15 @@ def build_dependency_tree_depth(
 
         # Iterate over all variants and select the best one
         # Here we just assume best = latest non-conflicting
+        failed_dependency_chains = []
         for rec in RECIPES[pkg.name]:
             if rec.pkg.conflicts_with(pkg):
                 continue
 
             # LOG.debug(f"Considering {rec}")
-            if has_dependency_conflict(rec, constraints, RECIPES):
+            failchain = []
+            if has_dependency_conflict(rec, constraints, RECIPES, failchain):
+                failed_dependency_chains.append(failchain)
                 continue
 
             # LOG.debug(f"Recursing dependencies of {rec}")
@@ -149,7 +151,7 @@ def build_dependency_tree_depth(
 
             break
         else:
-            raise RuntimeError(f"Could not find a suitable recipe for {pkg}")
+            raise RuntimeError(f"Could not find a suitable recipe for {pkg}: {failed_dependency_chains}")
 
     return new_deps
 
@@ -176,7 +178,7 @@ def find_recipe(
         if pkg_req.conflicts_with(recipe.pkg):
             continue
 
-        if has_dependency_conflict(recipe, requested_variant, RECIPES):
+        if has_dependency_conflict(recipe, requested_variant, RECIPES, []):
             LOG.debug(f"Rejected {recipe} for dependency conflict")
             continue
 
@@ -311,7 +313,6 @@ def cook_recipe(recipe: Recipe, constraints: PackageList, no_cleanup: bool, verb
     LOG.debug(f"Cooking {recipe}")
     # First, copy the resolved package.py to the build area
     name = recipe.pkg.name
-    version_range = recipe.pkg.range
     version = str(recipe.pkg.range)
     str_variant = [str(v) for v in recipe.variant]
     pkg_subpath = os.path.join(name, version, *str_variant)
@@ -644,7 +645,8 @@ if __name__ == "__main__":
             break
 
         except Exception as e:
-            LOG.info(f"Candidate recipe {rec} failed the dependency check")
+            LOG.info(f"Candidate recipe {rec} failed the dependency check: {e}")
+            # traceback.print_exc(e)
     else:
         LOG.error(f"Could not find suitable recipe for {pkg_req}")
         sys.exit(1)
