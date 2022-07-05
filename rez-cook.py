@@ -84,8 +84,9 @@ def has_dependency_conflict(
     with any of the given constraints
     """
 
-    if recipe.conflicts_with_package_list(constraints):
-        failed_dependency_chain.append(str(recipe.pkg))
+    constraints_conflict = recipe.conflicts_with_package_list(constraints)
+    if constraints_conflict:
+        failed_dependency_chain.append(constraints_conflict)
         return True
 
     merged = recipe.build_requires.additive_merged(recipe.requires)
@@ -116,6 +117,11 @@ def build_dependency_tree_depth(
     of recipe, given the constraints
     """
 
+    LOG.debug(f"build_dependency_tree(")
+    LOG.debug(f"    recipe: {recipe}")
+    LOG.debug(f"    constraints: {constraints}")
+    LOG.debug(f")")
+
     # Merge the requirements for this recipe
     merged_requires = recipe.build_requires.additive_merged(
         recipe.requires
@@ -125,7 +131,7 @@ def build_dependency_tree_depth(
     # TODO: make a nice display for the user when dependency resolution fails
     new_deps = []
     for pkg in merged_requires:
-        # LOG.debug(f"Finding recipe for {pkg}")
+        LOG.debug(f"--- Finding recipe for {pkg}")
         if pkg.name not in RECIPES.keys():
             raise RuntimeError(f"Could not find a recipe for {pkg}")
 
@@ -160,6 +166,7 @@ def build_dependency_tree_depth(
                 f"Could not find a suitable recipe for {pkg}: {failed_dependency_chains}"
             )
 
+    print(f"  new_deps: {[str(d) for d in new_deps]}")
     return new_deps
 
 
@@ -232,7 +239,7 @@ def download_and_unpack(
     """
     import shutil, os
 
-    print(f"Downloading {url}")
+    print(f"Downloading {url}\n")
     fn = download(url, local_dir)
 
     files_before = os.listdir(".")
@@ -284,6 +291,16 @@ def fetch_repository(repo: str, branch: str = None):
         shutil.move(os.path.join("_clone", f), f)
 
 
+def patch(patch_str: str):
+    from patch import PatchSet
+    from io import StringIO, BytesIO
+
+    stream = BytesIO(patch_str.encode())
+    patch = PatchSet(stream)
+
+    patch.apply()
+
+
 def build_variant_path(variant: PackageList, path: str, comp: int):
     """
     Find the package.py corresponding to the given `variant` under `path`
@@ -310,7 +327,11 @@ def find_recipe_resource(name: str, version: str, variant: PackageList):
     """
 
     version_base = os.path.join(RECIPES_PATH, name, version)
-    return build_variant_path(variant, version_base, 0)
+
+    try:
+        return build_variant_path(variant, version_base, 0)
+    except RuntimeError:
+        return os.path.join(version_base, "package.py")
 
 
 def cook_recipe(
@@ -395,6 +416,7 @@ def cook_recipe(
     setattr(mod, "build_path", build_path)
     setattr(mod, "root", staging_path)
     setattr(mod, "download", download)
+    setattr(mod, "patch", patch)
     setattr(mod, "download_and_unpack", download_and_unpack)
     setattr(mod, "fetch_repository", fetch_repository)
 
@@ -614,7 +636,6 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
     if args.debug:
-        print("Setting debug logging")
         logging.basicConfig(
             level=logging.DEBUG,
             format="[%(levelname)s] %(filename)s:%(lineno)d %(message)s",
@@ -641,6 +662,8 @@ if __name__ == "__main__":
         installed=False,
     )
 
+    LOG.debug(f"Constraints: {requested_variant}")
+
     print()
     print("Available recipes:")
     recipes_to_cook = []
@@ -658,8 +681,10 @@ if __name__ == "__main__":
 
             break
 
-        except Exception as e:
-            LOG.info(f"Candidate recipe {rec} failed the dependency check: {e}")
+        # FIXME: this is hiding issues, work out better resolution here
+        except RuntimeError as e:
+            LOG.error(f"Candidate recipe {rec} failed the dependency check: {e}")
+            LOG.debug(f"   constraints: {constraints}")
             # traceback.print_exc(e)
     else:
         LOG.error(f"Could not find suitable recipe for {pkg_req}")
@@ -676,8 +701,9 @@ if __name__ == "__main__":
         print()
         print("Cooking:")
         for rec in recipes_to_cook:
+            cook_variant = rec.variant.merged_into(constraints)
             if not rec.installed:
-                print(f"    {rec.pkg}/{'/'.join([str(p) for p in rec.variant])}")
+                print(f"    {rec.pkg}/{'/'.join([str(p) for p in cook_variant])}")
     else:
         print("\n\nNothing to cook.")
         sys.exit(0)

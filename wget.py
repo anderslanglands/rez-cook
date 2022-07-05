@@ -161,7 +161,7 @@ def bar_thermometer(current, total, width=80):
     # number of dots on thermometer scale
     avail_dots = width-2
     shaded_dots = int(math.floor(float(current) / total * avail_dots))
-    return '[' + '='*shaded_dots + ' '*(avail_dots-shaded_dots) + ']'
+    return '█'*shaded_dots + '░'*(avail_dots-shaded_dots)
 
 def bar_adaptive(current, total, width=80):
     """Return progress bar string for given values in one of three

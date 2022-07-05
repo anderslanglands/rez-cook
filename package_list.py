@@ -21,7 +21,7 @@ class PackageList:
         for p in self._pkgs:
             for r in rhs._pkgs:
                 if p.conflicts_with(r):
-                    return True
+                    return f"{p} <-!-> {r}"
 
         return False
 

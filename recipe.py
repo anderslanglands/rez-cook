@@ -24,16 +24,12 @@ class Recipe:
 
     def conflicts_with_package(self, rhs: PackageRequest) -> bool:
         if self.pkg.name == rhs.name and not self.pkg.range.intersects(rhs.range):
-            return True
+            return f"{self.pkg} <-!-> {rhs}"
 
-        if self.variant.conflicts_with(rhs):
-            return True
-
-        if self.requires.conflicts_with(rhs):
-            return True
-
-        if self.build_requires.conflicts_with(rhs):
-            return True
+        for v in [self.variant, self.requires, self.build_requires]:
+            vc = v.has_conflicts_with(rhs)
+            if vc:
+                return vc
 
         return False
 
@@ -41,28 +37,16 @@ class Recipe:
         for p in rhs:
             if self.pkg.name == p.name and not self.pkg.range.intersects(p.range):
                 # print(f"      recipe {self.pkg} conflicts with {p}")
-                return True
+                return f"{self.pkg} <-!-> {p}"
 
-            if self.variant.has_conflicts_with(rhs):
-                # print(f"      recipe variant {self.variant} conflicts with {rhs}")
-                return True
-
-            if self.requires.has_conflicts_with(rhs):
-                # print(f"      recipe requires {self.requires} conflicts with {rhs}")
-                return True
-
-            if self.build_requires.has_conflicts_with(rhs):
-                # print(f"      recipe build_requires {self.build_requires} conflicts with {rhs}")
-                return True
+            for v in [self.variant, self.requires, self.build_requires]:
+                vc = v.has_conflicts_with(rhs)
+                if vc:
+                    return vc
 
         return False
 
     def __str__(self):
         namever = f"{self.pkg.name}-{self.pkg.range}"
-        if self.installed:
-            status = "·"
-        else:
-            status = "⚙"
-
-        return f"{status} {namever:32} {str(self.variant)} => {self.requires}, {self.build_requires}"
+        return f"{namever}/{'/'.join([str(p) for p in self.variant])}"
 
