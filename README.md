@@ -4,7 +4,7 @@ Will install into $HOME/packages by default. I suggest moving your existing loca
 
 Tested on Windows 11 and Ubuntu 20.04. Requires pwsh on Windows. 
 
-Requires rez-python to be python 3 (tested lightly on 3.6 and 3.9)
+Requires rez-python to be python 3.6+ (tested lightly on 3.6 and 3.9)
 
 To use:
 
@@ -37,16 +37,12 @@ git clone git@github.com:anderslanglands/rez-cook.git
 cd rez-cook
 ```
 
-5. Now to install something, e.g. `oiio` and watch it download, build and install all the dependencies too. 
+5. Now to install something, e.g. `usd` and watch it download, build and install all the dependencies too. 
 ```bash
-# On Windows
-rez-python ./rez-cook.py oiio -c python-3.7 vs-2017 cfg-release
-
-# On Linux
-rez-python ./rez-cook.py oiio -c python-3.7 cxx11abi=0 cfg-release
+# Build USD 21.08, constraining it to match the requirements of vfx reference platform 2022
+rez-python ./rez-cook.py usd-21 -c vfxrp-2022 cfg-release
 
 ```
-The `-c` flag specifies a series of constraints that you want to apply to the build. In this case we want to specify that we're building against python-3.7 and vs-2017 on Windows, and specifying that we don't want to use the glibc cxx11 abi on Linux. If you don't specify this it will choose the latest versions it can solve for, which may not be what you want, or if it can't figure out an appropriate constraint from the dependency resolve, it will error and prompt you to specify the missing information. You can use `--dry-run` flag to just do the dependency resolve but not actually build anything.
 
 
 The supported arguments are:
@@ -59,5 +55,3 @@ The supported arguments are:
 -bb/--verbose-build: print all build output
 --debug: print extra debugging information
 ```
-
-If you're feeling really daring and have time to kill, try building `usd`. You can constrain it to use a particular vfx reference platform by specifying e.g. `-c vfxrp-2022`
