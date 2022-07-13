@@ -55,8 +55,9 @@ The supported arguments are:
 -c/--constrain: specify a list of package requests to use to constrain the dependencies of the package you want to build
 -s/--search-path: a list of package repository paths to use for searching for installed packages
 -p/--prefix: the package prefix path to install to
---debug: print extra debugging information, including the build system output
 -y/--yes: don't ask for confirmation before installing
+-bb/--verbose-build: print all build output
+--debug: print extra debugging information
 ```
 
 If you're feeling really daring and have time to kill, try building `usd`. You can constrain it to use a particular vfx reference platform by specifying e.g. `-c vfxrp-2022`
