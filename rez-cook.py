@@ -272,7 +272,7 @@ def download_and_unpack(
                 shutil.move(os.path.join(archive_dir, file), file)
 
 
-def fetch_repository(repo: str, branch: str = None):
+def fetch_repository(repo: str, branch: str = None, local_dir = None):
     """
     Fetch the given branch from the given git repository, non-recusively with
     a depth of 1
@@ -295,8 +295,11 @@ def fetch_repository(repo: str, branch: str = None):
 
     sp.run(args)
 
+    if local_dir is None:
+        local_dir = os.getcwd()
+
     for f in os.listdir("_clone"):
-        shutil.move(os.path.join("_clone", f), f)
+        shutil.move(os.path.join("_clone", f), os.path.join(local_dir, f))
 
 
 def patch(patch_str: str):
@@ -392,7 +395,9 @@ def cook_recipe(
             cook_variant.append(new_req)
     cook_variant = PackageList(cook_variant)
 
-    # print(f"Building with {cook_variant}")
+    
+    print(f"Building with {cook_variant}")
+    
 
     install_path = os.path.join(prefix, pkg_subpath)
     install_root = os.path.join(prefix, name, version)
@@ -401,6 +406,30 @@ def cook_recipe(
 
     # load the package and run pre_cook() if it's defined
     old_dir = os.getcwd()
+    mod = load_module(
+        f"{name}-{version}-{recipe.variant}",
+        staging_package_py_path,
+        globals={
+            "cook_variant": [str(v) for v in cook_variant],
+            "root": staging_path,
+            "name": name,
+            "version": version,
+            "variant": recipe.variant,
+            "install_path": install_path,
+            "install_root": install_root,
+            "build_path": build_path,
+        },
+    )
+
+    if getattr(mod, "hashed_variants", False):
+        from hashlib import sha1
+        vars_str = str(list(map(str, cook_variant)))
+        h = sha1(vars_str.encode("utf8"))
+        variant_subpath = h.hexdigest()
+
+        install_path = os.path.join(install_root, variant_subpath)
+        build_path = os.path.join(staging_path, "build", variant_subpath)
+
     mod = load_module(
         f"{name}-{version}-{recipe.variant}",
         staging_package_py_path,
@@ -512,31 +541,36 @@ def load_recipes(package_search_paths: str, recipe_search_paths: str) -> Dict:
     )
 
     if not b"No matching" in result.stderr:
-        for name, version, vstr, requires_str, build_requires_str in [
-            x.strip().split(":")
-            for x in reversed(result.stdout.decode("utf-8").splitlines())
-        ]:
-            # this_pkg = PackageRequest(f"{name}-{version}")
-            variants = [parse_variants(v) for v in filter(None, vstr.split("["))]
-            requires = PackageList([x for x in filter(None, requires_str.split(" "))])
-            build_requires = PackageList(
-                [x for x in filter(None, build_requires_str.split(" "))]
-            )
-
-            if name not in RECIPES.keys():
-                RECIPES[name] = []
-
-            if len(variants) != 0:
-                for variant in variants:
-                    RECIPES[name].append(
-                        Recipe(name, version, variant, requires, build_requires, True)
-                    )
-            else:
-                RECIPES[name].append(
-                    Recipe(
-                        name, version, PackageList([]), requires, build_requires, True
-                    )
+        try:
+            for name, version, vstr, requires_str, build_requires_str in [
+                x.strip().split(":")
+                for x in reversed(result.stdout.decode("utf-8").splitlines())
+            ]:
+                # this_pkg = PackageRequest(f"{name}-{version}")
+                variants = [parse_variants(v) for v in filter(None, vstr.split("["))]
+                requires = PackageList([x for x in filter(None, requires_str.split(" "))])
+                build_requires = PackageList(
+                    [x for x in filter(None, build_requires_str.split(" "))]
                 )
+
+                if name not in RECIPES.keys():
+                    RECIPES[name] = []
+
+                if len(variants) != 0:
+                    for variant in variants:
+                        RECIPES[name].append(
+                            Recipe(name, version, variant, requires, build_requires, True)
+                        )
+                else:
+                    RECIPES[name].append(
+                        Recipe(
+                            name, version, PackageList([]), requires, build_requires, True
+                        )
+                    )
+        except ValueError as e:
+            for x in result.stdout.decode('utf-8').splitlines():
+                print(x)
+            raise e
 
     # Now do recipes
     result = sp.run(

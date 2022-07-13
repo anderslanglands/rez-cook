@@ -160,3 +160,6 @@ class PackageList:
 
     def __add__(self, rhs):
         return PackageList(self._pkgs + rhs._pkgs)
+
+    def __hash__(self):
+        return hash(str(self._pkgs))
