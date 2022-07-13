@@ -188,18 +188,24 @@ def find_recipe(
     PackageRequest and requested_variant constraints.
     """
 
-    found = []
 
     if not RECIPES or pkg_req.name not in RECIPES.keys():
+        LOG.debug(f"No recipes in storage for {pkg_req.name}")
+        for pkg_name, recs in RECIPES.items():
+            LOG.debug(f"{pkg_name}:")
+            for rec in recs:
+                LOG.debug(f"    {rec}")
         return []
 
     recipes = RECIPES[pkg_req.name]
 
+    found = []
     for recipe in recipes:
         # if recipe.installed != installed:
         #     continue
 
         if pkg_req.conflicts_with(recipe.pkg):
+            LOG.debug(f"{pkg_req} conflict with {recipe.pkg}")
             continue
 
         failchain = [f"{recipe}"]
@@ -587,8 +593,8 @@ def load_recipes(package_search_paths: str, recipe_search_paths: str) -> Dict:
         stderr=sp.PIPE,
     )
 
-    if b"No matching" in result.stderr:
-        return RECIPES
+    if b"No matching" in result.stderr or not result.stdout:
+        raise RuntimeError(f"Could not find any recipes in {recipe_search_paths}: {result.stderr}")
 
     for name, version, vstr, requires_str, build_requires_str in [
         x.strip().split(":")
@@ -625,9 +631,13 @@ def get_constraints_from_package_recipes(pkg_req: PackageRequest, initial_constr
         installed=False,
     )
 
+    if not available_recipes:
+        raise RuntimeError(f"Could not find any recipes for {pkg_req}")
+
     # First walk the dependencies of the constraints to further specify our build constraints
     for rec in available_recipes:
         if rec.conflicts_with_package_list(initial_constraints):
+            print(f"{rec} conflicts with {initial_constraints}")
             continue
 
         constraints = deepcopy(initial_constraints)
@@ -637,6 +647,8 @@ def get_constraints_from_package_recipes(pkg_req: PackageRequest, initial_constr
         # all the different options we might have available and how to combine them
         # with the recipes we'll find later
         return constraints
+
+    raise RuntimeError(f"Could not solve constraints with {pkg_req} vs {initial_constraints}")
 
 
 
@@ -740,6 +752,8 @@ if __name__ == "__main__":
     requested_constraints = deepcopy(requested_variant)
     for req in requested_variant:
         constraints = get_constraints_from_package_recipes(req, requested_variant, RECIPES)
+        if constraints is None:
+            raise RuntimeError("None constraints")
         requested_constraints = requested_constraints.additive_merged(constraints)
 
     if args.debug:
