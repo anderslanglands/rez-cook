@@ -43,7 +43,6 @@ cd rez-cook
 rez-python ./rez-cook.py usd-21 -c vfxrp-2022 cfg-release
 
 ```
-The `-c` flag specifies a series of constraints that you want to apply to the build. In this case we want to specify that we're building against python-3.7 and vs-2017 on Windows, and specifying that we don't want to use the glibc cxx11 abi on Linux. If you don't specify this it will choose the latest versions it can solve for, which may not be what you want, or if it can't figure out an appropriate constraint from the dependency resolve, it will error and prompt you to specify the missing information. You can use `--dry-run` flag to just do the dependency resolve but not actually build anything.
 
 
 The supported arguments are:
