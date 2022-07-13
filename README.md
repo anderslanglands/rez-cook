@@ -4,7 +4,7 @@ Will install into $HOME/packages by default. I suggest moving your existing loca
 
 Tested on Windows 11 and Ubuntu 20.04. Requires pwsh on Windows. 
 
-Requires rez-python to be python 3 (tested lightly on 3.6 and 3.9)
+Requires rez-python to be python 3.6+ (tested lightly on 3.6 and 3.9)
 
 To use:
 
