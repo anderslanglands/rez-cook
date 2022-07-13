@@ -811,7 +811,7 @@ if __name__ == "__main__":
         # and uncooked recipes in this list. For now just break on the first one (which will
         # be the installed version if there is one)
         break
-        
+
     if args.debug:
         for toplevel, deps in trees.items():
             if toplevel.installed:
@@ -822,7 +822,7 @@ if __name__ == "__main__":
             print(f"\n{status} {toplevel}")
 
             for name, recs in deps.items():
-                if name in ['platform', 'arch', 'cmake']:
+                if name in ['platform', 'arch']:
                     continue 
 
                 print(f"{name}:")
@@ -832,6 +832,65 @@ if __name__ == "__main__":
                     else:
                         status = "☐"
                     print(f"    {status} {r}")
+
+    # Now walk the list again and figure out if we've got multiple versions of 
+    # the recipe available. If there's only one recipe to build, then we can 
+    # just use that below instead of asking the user to constrain it further
+    # TODO: don't do all these separate iterations
+    solved_deps = {}
+    for toplevel, deps in trees.items():
+        for name, recs in deps.items():
+            for rec in recs:
+                if name not in solved_deps.keys():
+                    solved_deps[name] = [rec.pkg]
+                else:
+                    if rec.pkg not in solved_deps[name]:
+                        solved_deps[name].append(rec.pkg)
+                
+    # print("Solved deps")
+    # for name, versions in solved_deps.items():
+    #     print(f"{name}")
+    #     for v in versions:
+    #         print(f"    {v}")
+
+        
+    # Go through and check for unconstrained varaints before we actually get to 
+    # cooking
+    unconstrained = []
+    solved_constraints = []
+    for rec in selected_to_cook:
+        cook_variant_expanded = rec.variant.merged_into(requested_constraints)
+        for req in cook_variant_expanded:
+            if req.range.is_any():
+                if req.name in solved_deps.keys() and len(solved_deps[req.name]) == 1:
+                    solved_constraints.append(req.merged(solved_deps[req.name][0]))
+                elif req not in unconstrained:
+                    unconstrained.append(req)
+            else:
+                solved_constraints.append(req)
+
+    if unconstrained:
+        print()
+        print("The following packages have multiple versions that could satisfy"
+              f" the dependencies of {pkg_req}. You must choose "
+                "versions for them with '--constrain'")
+        example_strs = []
+        for pkg in unconstrained:
+            versions = []
+            first = True
+            for req in solved_deps[pkg.name]:
+                versions.append(f"{req.range}")
+                if first:
+                    example_strs.append(str(req))
+                    first = False
+
+            print(f"    {pkg}: {', '.join(versions)}")
+
+        print("\nFor example:")
+        print(f"    --constrain {' '.join(example_strs)}")
+        print()
+
+        sys.exit(2)
 
 
     if selected_installed:
@@ -863,5 +922,5 @@ if __name__ == "__main__":
 
     # Finally, cook each selected recipe. They will be in reverse dependency order already
     for recipe in selected_to_cook:
-        LOG.debug(f"Cooking {recipe} {recipe.requires} {recipe.build_requires} with {requested_constraints}")
-        cook_recipe(recipe, requested_constraints, install_prefix, args.no_cleanup, args.verbose_build)
+        LOG.debug(f"Cooking {recipe} {recipe.requires} {recipe.build_requires} with {solved_constraints}")
+        cook_recipe(recipe, solved_constraints, install_prefix, args.no_cleanup, args.verbose_build)
