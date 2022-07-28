@@ -50,9 +50,7 @@ cd rez-cook
 ```bash
 # Build USD 21.08, constraining it to match the requirements of vfx reference platform 2022
 rez-python ./rez-cook.py usd-21 -c vfxrp-2022 cfg-release
-
 ```
-
 
 The supported arguments are:
 ```
@@ -63,4 +61,10 @@ The supported arguments are:
 -y/--yes: don't ask for confirmation before installing
 -bb/--verbose-build: print all build output
 --debug: print extra debugging information
+```
+
+6. Then just 
+```bash
+rez-env usd-21
+usdview <...>
 ```
