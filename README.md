@@ -20,7 +20,7 @@ To use:
 1. Clone the rez-recipes repo: https://github.com/anderslanglands/rez-recipes
 2. Set the `REZ_RECIPES_PATH` environment variable to point to your local copy of the repo
 
-3. If you're on Windows, set up your rez-config like so:
+3. If you're on Windows, set up your rez-config (`$HOME/.rezconfig`) like so:
 ```python
 {
     "default_shell": "pwsh",
