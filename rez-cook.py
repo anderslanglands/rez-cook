@@ -868,6 +868,7 @@ if __name__ == "__main__":
                     unconstrained.append(req)
             else:
                 solved_constraints.append(req)
+    solved_constraints = PackageList(solved_constraints)
 
     if unconstrained:
         print()
@@ -923,4 +924,5 @@ if __name__ == "__main__":
     # Finally, cook each selected recipe. They will be in reverse dependency order already
     for recipe in selected_to_cook:
         LOG.debug(f"Cooking {recipe} {recipe.requires} {recipe.build_requires} with {solved_constraints}")
+        LOG.debug(f"type of solved constarints: {type(solved_constraints)}")
         cook_recipe(recipe, solved_constraints, install_prefix, args.no_cleanup, args.verbose_build)
