@@ -2,9 +2,18 @@ Experimental package builder for rez. Works on my machine. Use at your own risk.
 
 Will install into $HOME/packages by default. I suggest moving your existing local packages out of the way for testing if you've already installed some there, or use the `--prefix`` flag to specify somewhere else to install them. I would still back up my local packages anyway if I were you.
 
-Tested on Windows 11 and Ubuntu 20.04. Requires pwsh on Windows. 
+Tested on Windows 11, Ubuntu 18.04, 20.04 and 22.04. Requires pwsh on Windows. 
 
-Requires rez-python to be python 3.6+ (tested lightly on 3.6 and 3.9)
+Requires rez-python to be python 3.6+ (tested on 3.6 and 3.9)
+
+If you don't yet have rez installed, do the following first:
+
+```bash
+git clone https://github.com/AcademySoftwareFoundation/rez.git
+cd rez
+python ./install.py # Note this must be python3.6+
+rez-bind os
+```
 
 To use:
 
