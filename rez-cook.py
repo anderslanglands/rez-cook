@@ -396,6 +396,13 @@ if __name__ == "__main__":
                                           package_requests=[recipe_request],
                                           building=True)
 
+    if pure_recipe_context.status != ResolverStatus.solved:
+        requested_packages = [str(p) for p in pure_recipe_context.requested_packages()]
+        LOG.error(f"Failed to resolve context: {requested_packages}")
+        LOG.error(pure_recipe_context.failure_description)
+        LOG.error(failure_detail_from_graph(pure_recipe_context.graph(as_dot=False)))
+        sys.exit(1)
+
     pure_recipe_requires = [p.name for p in pure_recipe_context.resolved_packages]
 
     # This is a context with the highest possible versions rez was able to come up with.
@@ -404,12 +411,28 @@ if __name__ == "__main__":
                                            package_requests=[*constraints, recipe_request],
                                            building=True)
 
+    if valid_recipe_context.status != ResolverStatus.solved:
+        requested_packages = [str(p) for p in valid_recipe_context.requested_packages()]
+        LOG.error(f"Failed to resolve context: {requested_packages}")
+        LOG.error(valid_recipe_context.failure_description)
+        LOG.error(failure_detail_from_graph(valid_recipe_context.graph(as_dot=False)))
+        sys.exit(1)
+
+    # A set of required package requests.
+    # We'll use that later to set up a requirement list that will help us to filter
+    # recipes and installed dependencies.
+    _recipe_requires = set(constraints)
+
     # Set up a dict that contains the recipes required.
     # We'll refer to it later when overriding the variant requires for each package of the recipe.
     possible_recipes = {}
     packages_without_recipe = {}
     for rec in valid_recipe_context.resolved_packages:
         rec: Variant
+        for req in rec.get_requires(True):
+            # Even if we won't build the current recipe, we still want to get its requires.
+            # This is to get vfxrp constraints working as expected.
+            _recipe_requires.add(req)
         if rec.name not in pure_recipe_requires:
             # This package is not required to run the built recipe we want to cook.
             # Useful when you want to constrain to vfxrp for example.
@@ -418,24 +441,6 @@ if __name__ == "__main__":
             possible_recipes[rec.name] = rec
         else:
             packages_without_recipe[rec.name] = rec
-
-    if valid_recipe_context.status != ResolverStatus.solved:
-        requested_packages = [str(p) for p in valid_recipe_context.requested_packages()]
-        LOG.error(f"Failed to resolve context: {requested_packages}")
-        LOG.error(valid_recipe_context.failure_description)
-        LOG.error(failure_detail_from_graph(valid_recipe_context.graph(as_dot=False)))
-        sys.exit(1)
-
-    # List every requires of the recipe.
-    _recipe_requires = set()
-    resolved_recipe = possible_recipes[recipe_request.name]
-    for rec in possible_recipes.values():
-        for req in rec.get_requires(True):
-            _recipe_requires.add(req)
-
-    # Add the constraints.
-    for constrain in constraints:
-        _recipe_requires.add(constrain)
 
     # Combine all the requires in a requirement list.
     requirement_list = RequirementList(_recipe_requires)
