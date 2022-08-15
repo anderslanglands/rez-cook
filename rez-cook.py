@@ -387,6 +387,17 @@ if __name__ == "__main__":
 
     constraints = [PackageRequest(c) for c in args.constrain] if args.constrain else []
 
+    # The pure recipe context gives us the packages required by the recipe, and only those.
+    # This is required when we want to use constraints like vfxrp.
+    # For example, if you want to build usd with vfxrp-2022 specs, you just want to constrain
+    # usd requires to the vfxrp-2022 requires versions. You don't want to build missing packages
+    # that vfxrp-2022 requires (like alembic, blosc, pyqt5, openvdb and vfxrp itself).
+    pure_recipe_context = ResolvedContext(package_paths=[RECIPES_PATH, *packages_path],
+                                          package_requests=[recipe_request],
+                                          building=True)
+
+    pure_recipe_requires = [p.name for p in pure_recipe_context.resolved_packages]
+
     # This is a context with the highest possible versions rez was able to come up with.
     # Recipes have a high priority.
     valid_recipe_context = ResolvedContext(package_paths=[RECIPES_PATH, *packages_path],
@@ -399,6 +410,10 @@ if __name__ == "__main__":
     packages_without_recipe = {}
     for rec in valid_recipe_context.resolved_packages:
         rec: Variant
+        if rec.name not in pure_recipe_requires:
+            # This package is not required to run the built recipe we want to cook.
+            # Useful when you want to constrain to vfxrp for example.
+            continue
         if Path(rec.repository.location) == recipes_path:
             possible_recipes[rec.name] = rec
         else:
