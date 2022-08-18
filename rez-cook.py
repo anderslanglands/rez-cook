@@ -11,7 +11,7 @@ from typing import Dict, List, Optional
 
 import rez.config
 from package_list import PackageList
-from rez.build_process import create_build_process
+from rez.build_process import BuildType, create_build_process
 from rez.build_system import create_build_system
 from rez.exceptions import BuildContextResolveError
 from rez.package_search import ResourceSearchResult
@@ -387,24 +387,6 @@ if __name__ == "__main__":
 
     constraints = [PackageRequest(c) for c in args.constrain] if args.constrain else []
 
-    # The pure recipe context gives us the packages required by the recipe, and only those.
-    # This is required when we want to use constraints like vfxrp.
-    # For example, if you want to build usd with vfxrp-2022 specs, you just want to constrain
-    # usd requires to the vfxrp-2022 requires versions. You don't want to build missing packages
-    # that vfxrp-2022 requires (like alembic, blosc, pyqt5, openvdb and vfxrp itself).
-    pure_recipe_context = ResolvedContext(package_paths=[RECIPES_PATH, *packages_path],
-                                          package_requests=[recipe_request],
-                                          building=True)
-
-    if pure_recipe_context.status != ResolverStatus.solved:
-        requested_packages = [str(p) for p in pure_recipe_context.requested_packages()]
-        LOG.error(f"Failed to resolve context: {requested_packages}")
-        LOG.error(pure_recipe_context.failure_description)
-        LOG.error(failure_detail_from_graph(pure_recipe_context.graph(as_dot=False)))
-        sys.exit(1)
-
-    pure_recipe_requires = [p.name for p in pure_recipe_context.resolved_packages]
-
     # This is a context with the highest possible versions rez was able to come up with.
     # Recipes have a high priority.
     valid_recipe_context = ResolvedContext(package_paths=[RECIPES_PATH, *packages_path],
@@ -417,6 +399,27 @@ if __name__ == "__main__":
         LOG.error(valid_recipe_context.failure_description)
         LOG.error(failure_detail_from_graph(valid_recipe_context.graph(as_dot=False)))
         sys.exit(1)
+
+    valid_recipe = valid_recipe_context.get_resolved_package(recipe_request.name)
+
+    # The pure recipe context gives us the packages required by the recipe, and only those.
+    # This is required when we want to use constraints like vfxrp.
+    # For example, if you want to build usd with vfxrp-2022 specs, you just want to constrain
+    # usd requires to the vfxrp-2022 requires versions. You don't want to build missing packages
+    # that vfxrp-2022 requires (like alembic, blosc, pyqt5, openvdb and vfxrp itself).
+    pure_recipe_context = ResolvedContext(package_paths=[RECIPES_PATH, *packages_path],
+                                          package_requests=[recipe_request, *valid_recipe.requires],
+                                          building=True)
+
+    if pure_recipe_context.status != ResolverStatus.solved:
+        requested_packages = [str(p) for p in pure_recipe_context.requested_packages()]
+        LOG.error(f"Failed to resolve context: {requested_packages}")
+        LOG.error(pure_recipe_context.failure_description)
+        LOG.error(failure_detail_from_graph(pure_recipe_context.graph(as_dot=False)))
+        sys.exit(1)
+
+    pure_recipe_requires = [p.name for p in pure_recipe_context.resolved_packages]
+
 
     # A set of required package requests.
     # We'll use that later to set up a requirement list that will help us to filter
@@ -477,6 +480,14 @@ if __name__ == "__main__":
             has_conflict = False
             for variant in package.iter_variants():
                 variant_requires = variant.variant_requires
+
+                # Some variants may not have the same number of requires.
+                # For example, you can build usd with or without alembic.
+                # So, if the recipe variant we want to build
+                variant_requires_names = [r.name for r in variant_requires]
+                if not all([recipe_req.name in variant_requires_names for recipe_req in recipe.variant_requires]):
+                    continue
+
                 for req in variant_requires:
                     constrained_req: Requirement = requirement_list.get(req.name)
                     if not constrained_req:
