@@ -377,7 +377,8 @@ if __name__ == "__main__":
 
     # Make sure the recipes path is removed from packages_path.
     # Else, if recipes path is in packages path, recipes that have a baked variant will be flagged as cooked.
-    packages_path.remove(RECIPES_PATH)
+    if RECIPES_PATH in packages_path:
+        packages_path.remove(RECIPES_PATH)
 
     # Early check to see if the requested recipe exists.
     recipe_request = PackageRequest(args.package)
