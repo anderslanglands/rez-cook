@@ -445,7 +445,7 @@ if __name__ == "__main__":
             # This package is not required to run the built recipe we want to cook.
             # Useful when you want to constrain to vfxrp for example.
             continue
-        if Path(rec.repository.location) == recipes_path:
+        if Path(rec.repository.location) == recipes_path.readlink():
             possible_recipes[rec.name] = rec
         else:
             packages_without_recipe[rec.name] = rec
