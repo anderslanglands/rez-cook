@@ -11,7 +11,7 @@ from typing import Dict, List, Optional
 
 import rez.config
 from package_list import PackageList
-from rez.build_process import BuildType, create_build_process
+from rez.build_process import create_build_process
 from rez.build_system import create_build_system
 from rez.exceptions import BuildContextResolveError
 from rez.package_search import ResourceSearchResult
@@ -445,7 +445,10 @@ if __name__ == "__main__":
             # This package is not required to run the built recipe we want to cook.
             # Useful when you want to constrain to vfxrp for example.
             continue
-        if Path(rec.repository.location) == recipes_path.readlink():
+        real_recipes_path = recipes_path
+        if recipes_path.is_symlink():
+            real_recipes_path = recipes_path.readlink()
+        if Path(rec.repository.location) == real_recipes_path:
             possible_recipes[rec.name] = rec
         else:
             packages_without_recipe[rec.name] = rec
