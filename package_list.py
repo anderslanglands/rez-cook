@@ -1,4 +1,4 @@
-from rez.vendor.version.version import VersionRange
+from rez.version import VersionRange
 from rez.utils.formatting import PackageRequest
 
 class VersionConflict(Exception):

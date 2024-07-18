@@ -20,8 +20,8 @@ from rez.resolved_context import ResolvedContext
 from rez.resolver import ResolverStatus
 from rez.utils.formatting import PackageRequest
 from rez.utils.resolve_graph import failure_detail_from_graph
-from rez.vendor.version.requirement import Requirement, RequirementList
-from rez.vendor.version.version import VersionRange
+from rez.version import Requirement, RequirementList
+from rez.version import VersionRange
 from wget import download
 
 LOG = logging.getLogger("rez-cook")
@@ -33,7 +33,9 @@ PLATFORM = platform.system().lower()
 ARCH = platform.machine()
 PLATFORM_VARIANT = [f"platform-{PLATFORM}", f"arch-{ARCH}"]
 
-COOK_PATH = os.path.join(tempfile.gettempdir(), "rez-cook")
+COOK_PATH = os.getenv("REZ_COOK_PATH") or os.path.join(
+    tempfile.gettempdir(), "rez-cook"
+)
 
 REQUESTED_VARIANT = PLATFORM_VARIANT  # + constraints
 
@@ -121,7 +123,7 @@ def download_and_unpack(
                 shutil.move(os.path.join(archive_dir, file), file)
 
 
-def fetch_repository(repo: str, branch: str = None, local_dir = None):
+def fetch_repository(repo: str, branch: str = None, local_dir=None):
     """
     Fetch the given branch from the given git repository, non-recusively with
     a depth of 1
@@ -161,9 +163,7 @@ def patch(patch_str: str):
     patch.apply()
 
 
-def cook_recipe(
-    recipe: Variant, prefix: str, no_cleanup: bool, verbose_build: bool
-):
+def cook_recipe(recipe: Variant, prefix: str, no_cleanup: bool, verbose_build: bool):
     """
     Cook `recipe`.
 
@@ -271,16 +271,17 @@ def cook_recipe(
 
         try:
             print(f"Building {name}-{version} {cook_variant}")
-            buildsys = create_build_system(str(staging_path),
-                                           verbose=verbose_build,
-                                           build_args=build_args)
+            buildsys = create_build_system(
+                str(staging_path), verbose=verbose_build, build_args=build_args
+            )
 
-            builder = create_build_process(process_type="local",
-                                           working_dir=str(staging_path),
-                                           build_system=buildsys,
-                                           verbose=verbose_build)
-            builder.build(install_path=prefix,
-                          install=True)
+            builder = create_build_process(
+                process_type="local",
+                working_dir=str(staging_path),
+                build_system=buildsys,
+                verbose=verbose_build,
+            )
+            builder.build(install_path=prefix, install=True)
         except BuildContextResolveError as e:
             print(str(e), file=sys.stderr)
 
@@ -356,7 +357,9 @@ if __name__ == "__main__":
     handler = logging.StreamHandler()
     LOG.addHandler(handler)
     if args.debug:
-        handler.setFormatter(logging.Formatter("[%(levelname)s] %(filename)s:%(lineno)d %(message)s"))
+        handler.setFormatter(
+            logging.Formatter("[%(levelname)s] %(filename)s:%(lineno)d %(message)s")
+        )
         LOG.setLevel(logging.DEBUG)
     else:
         handler.setFormatter(logging.Formatter("[%(levelname)s] %(message)s"))
@@ -382,9 +385,7 @@ if __name__ == "__main__":
 
     # Early check to see if the requested recipe exists.
     recipe_request = PackageRequest(args.package)
-    it = iter_packages(recipe_request.name,
-                       recipe_request.range,
-                       paths=[RECIPES_PATH])
+    it = iter_packages(recipe_request.name, recipe_request.range, paths=[RECIPES_PATH])
     available_recipes = sorted(it, key=lambda x: x.version)
     if not available_recipes:
         print(f"Could not find an available recipe for {recipe_request}")
@@ -394,9 +395,11 @@ if __name__ == "__main__":
 
     # This is a context with the highest possible versions rez was able to come up with.
     # Recipes have a high priority.
-    valid_recipe_context = ResolvedContext(package_paths=[RECIPES_PATH, *packages_path],
-                                           package_requests=[*constraints, recipe_request],
-                                           building=True)
+    valid_recipe_context = ResolvedContext(
+        package_paths=[RECIPES_PATH, *packages_path],
+        package_requests=[*constraints, recipe_request],
+        building=True,
+    )
 
     if valid_recipe_context.status != ResolverStatus.solved:
         requested_packages = [str(p) for p in valid_recipe_context.requested_packages()]
@@ -412,9 +415,11 @@ if __name__ == "__main__":
     # For example, if you want to build usd with vfxrp-2022 specs, you just want to constrain
     # usd requires to the vfxrp-2022 requires versions. You don't want to build missing packages
     # that vfxrp-2022 requires (like alembic, blosc, pyqt5, openvdb and vfxrp itself).
-    pure_recipe_context = ResolvedContext(package_paths=[RECIPES_PATH, *packages_path],
-                                          package_requests=[recipe_request, *valid_recipe.requires],
-                                          building=True)
+    pure_recipe_context = ResolvedContext(
+        package_paths=[RECIPES_PATH, *packages_path],
+        package_requests=[recipe_request, *valid_recipe.requires],
+        building=True,
+    )
 
     if pure_recipe_context.status != ResolverStatus.solved:
         requested_packages = [str(p) for p in pure_recipe_context.requested_packages()]
@@ -424,7 +429,6 @@ if __name__ == "__main__":
         sys.exit(1)
 
     pure_recipe_requires = [p.name for p in pure_recipe_context.resolved_packages]
-
 
     # A set of required package requests.
     # We'll use that later to set up a requirement list that will help us to filter
@@ -468,15 +472,19 @@ if __name__ == "__main__":
         result: List[ResourceSearchResult]
         recipe_require_request = requirement_list.get(recipe_name)
         if not recipe_require_request:
-            installed_packages = sorted(iter_packages(recipe.name,
-                                                      str(recipe.version),
-                                                      paths=packages_path),
-                                        key=lambda x: x.version)
+            installed_packages = sorted(
+                iter_packages(recipe.name, str(recipe.version), paths=packages_path),
+                key=lambda x: x.version,
+            )
         else:
-            installed_packages = sorted(iter_packages(recipe_require_request.name,
-                                                      recipe_require_request.range,
-                                                      paths=packages_path),
-                                        key=lambda x: x.version)
+            installed_packages = sorted(
+                iter_packages(
+                    recipe_require_request.name,
+                    recipe_require_request.range,
+                    paths=packages_path,
+                ),
+                key=lambda x: x.version,
+            )
         if not installed_packages:
             # Package not found, we need to build the recipe.
             selected_to_cook[recipe_name] = recipe
@@ -493,7 +501,12 @@ if __name__ == "__main__":
                 # For example, you can build usd with or without alembic.
                 # So, if the recipe variant we want to build
                 variant_requires_names = [r.name for r in variant_requires]
-                if not all([recipe_req.name in variant_requires_names for recipe_req in recipe.variant_requires]):
+                if not all(
+                    [
+                        recipe_req.name in variant_requires_names
+                        for recipe_req in recipe.variant_requires
+                    ]
+                ):
                     continue
 
                 for req in variant_requires:
@@ -563,14 +576,18 @@ if __name__ == "__main__":
                 if not recipe_require:
                     # Something went wrong.
                     # The require is both not installed and not to be cooked.
-                    print(f"{str(req)} is not installed and not to be cooked. Aborting.")
+                    print(
+                        f"{str(req)} is not installed and not to be cooked. Aborting."
+                    )
                     sys.exit(1)
                 recipe_variant_requires[req.name] = recipe_require
 
             # Set the recipe variant requires to those precise versions.
             precise_variant_reqs = []
             for variant_req in rec.resource.variant_requires:
-                full_package_name = recipe_variant_requires[variant_req.name].qualified_package_name
+                full_package_name = recipe_variant_requires[
+                    variant_req.name
+                ].qualified_package_name
                 precise_variant_reqs.append(PackageRequest(full_package_name))
             rec.resource.variant_requires = precise_variant_reqs
             if rec.parent.variants:
@@ -627,5 +644,7 @@ if __name__ == "__main__":
 
     for recipe in selected_to_cook.values():
         LOG.debug(f"Cooking {recipe.qualified_package_name}{recipe.variant_text}")
-        LOG.debug(f"With: {', '.join([str(r) for r in recipe.get_requires(build_requires=True)])}")
+        LOG.debug(
+            f"With: {', '.join([str(r) for r in recipe.get_requires(build_requires=True)])}"
+        )
         cook_recipe(recipe, install_prefix, args.no_cleanup, args.verbose_build)
